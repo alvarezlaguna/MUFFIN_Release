@@ -1,0 +1,10 @@
+[submodule "pybind11"]
+	path = pybind11
+	url = https://github.com/pybind/pybind11.git
+[submodule "cmake-modules"]
+	path = cmake-modules
+	url = https://github.com/jedbrown/cmake-modules.git
+[submodule "Regression_tests_Euler"]
+	path = Regression_tests_Euler
+	url = https://github.com/alvarezlaguna/Regression_tests_EulerEqs.git
+

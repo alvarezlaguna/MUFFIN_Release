@@ -1,0 +1,19 @@
+name: muffin-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - petsc
+  - libgfortran
+  - cxx-compiler
+  - pip
+  - cmake=3.28.1
+  - pkgconfig
+  - ninja
+  - xtensor
+  - fmt
+  - pugixml
+  - cxxopts
+  - jupyter
+  - numpy=1.26
+  - matplotlib

@@ -1,0 +1,9 @@
+//
+//  MeshData.cpp
+//  Muffin
+//
+//  Created by Alejandro Alvarez Laguna on 12/08/18.
+//  Copyright © 2018 Alejandro Alvarez Laguna. All rights reserved.
+//
+
+#include "MeshData.hpp"

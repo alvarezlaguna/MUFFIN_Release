@@ -1,0 +1,785 @@
+//
+//  APIMEXTwoFluidIsothermal.cpp
+//  Muffin
+//
+//  Created by Alejandro Alvarez Laguna on 18/01/19.
+//  Copyright © 2019 Alejandro Alvarez Laguna. All rights reserved.
+//
+
+#include "APIMEXTwoFluidIsothermal.hpp"
+
+// Self-register with the factory
+#include "TimeMethodRegistrar.hpp"
+REGISTER_TIMEMETHOD("APIMEXTwoFluidIsothermal", APIMEXTwoFluidIsothermal);
+#include "../MeshData/MeshData.hpp"
+#include "../MeshData/Cell1D.hpp"
+#include "../PhysicalModel/PhysicalModelFactory.hpp"
+#include "../SourceTerm/SourceTermFactory.hpp"
+#include "../BoundaryCondition/BoundaryConditionFactory.hpp"
+#include "..//SpaceReconstructor/ReconstructorFactory.hpp"
+#include "../FluxScheme/FluxSchemeFactory.hpp"
+#include "../LinearSolver/ThomasAlgorithm.hpp"
+#include <iostream>
+#include <cmath>
+
+void APIMEXTwoFluidIsothermal::setup(){
+    
+    py::print("Setting-up:\t ",this->getName(),"\n");
+    
+    vector<CellDataRef>& bounds = MeshData::getInstance().getData<CellDataRef>("boundaries");
+    m_uInlet  = bounds[0];
+    m_uOutlet = bounds[1];
+    
+    // Create the Physical model
+    m_pm = PhysicalModelFactory::CreatePhysicalModel(PHYSICALMODELNAME);
+    
+    // Initialize the flux scheme
+    m_flux = FluxSchemeFactory::CreateFluxScheme(FLUXSCHEMENAME);
+    m_flux->setPhysicalModel(m_pm.get());
+    
+    // Initialize the source term
+    m_source = SourceTermFactory::CreateSourceTerm(SOURCETERMNAME);
+    m_source->setup();
+    m_source->setPhysicalModel(m_pm.get());
+    
+    // Initialize the reconstructor for second order solution in space
+    m_reconstructor = ReconstructorFactory::CreateReconstructor(RECONSTRUCTORNAME);
+    m_reconstructor->setup(); // initialize the limiter
+    
+    // TODO: Change this to be set from input file
+    m_InletBC  = BoundaryConditionFactory::CreateBoundaryCondition(INLETTYPE,"Left");
+    
+    m_OutletBC  = BoundaryConditionFactory::CreateBoundaryCondition(OUTLETTYPE,"Right");
+    
+    py::print("Space discretization using the flux scheme:\t ",m_flux->getName(),"\n");
+    py::print("Space discretization using the source term:\t ",m_source->getName(),"\n");
+    py::print("Space discretization using the reconstructor:\t ",m_reconstructor->getName(),"\n");
+    
+    // Setting up linear solver
+    m_linearSolver.reset(new ThomasAlgorithm("ThomasAlgorithm", NBCELLS));
+    m_linearSolver->setup();
+    
+    // Set-up the data to store Phi
+    MeshData& md = MeshData::getInstance();
+    md.createData<double>("Phi", NBCELLS);
+    vector<double>& phi    = MeshData::getInstance().getData<double>("Phi");
+    phi = m_x; // Initializing phi to the initial value that is set in the options
+    
+}
+
+double APIMEXTwoFluidIsothermal::velocityFlux(const CellDataRef uL, const CellDataRef uR) {
+    const double n_eL = uL[0];
+    const double n_eR = uR[0];
+    const double v_eL = uL[1]/n_eL;
+    const double v_eR = uR[1]/n_eR;
+    
+    const double u_12 = (v_eL + v_eR)/2;
+    
+    //Standard
+    //return 0.5*(v_eL + v_eR) - 0.5*sqrt(MASSRATIO)*(n_eR - n_eL);
+    
+    //Balanced
+    double Mach12 = abs(u_12/sqrt(MASSRATIO));
+    (Mach12 <= (1./MASSRATIO)) ? (Mach12 = 1./MASSRATIO) : (Mach12 = Mach12);
+    (Mach12 >= 1.) ? (Mach12 = 1.) : (Mach12 = Mach12);
+    return 0.5*(v_eL + v_eR) - 0.5*sqrt(MASSRATIO)*Mach12*(1./n_eR - 1./n_eL)*(n_eR + n_eL)/2.;//*Mach12
+    
+    // Old implementation
+    //const double Mach12 = max(abs(u_12/sqrt(MASSRATIO)), 1.);
+    //return 0.5*(v_eL + v_eR) - 0.5/(sqrt(MASSRATIO)*Mach12)*(n_eR - n_eL);
+    
+}
+
+double APIMEXTwoFluidIsothermal::pressureFlux(const CellDataRef uL, const CellDataRef uR) {
+    
+    const double n_eL = uL[0];
+    const double n_eR = uR[0];
+    const double v_eL = uL[1]/n_eL;
+    const double v_eR = uR[1]/n_eR;
+    
+    const double u_12 = (v_eL + v_eR)/2;
+    
+    // Standard
+    //return 0.5*MASSRATIO*(n_eR + n_eL) - 0.5*sqrt(MASSRATIO)*(v_eR - v_eL);
+    // Balanced
+    double Mach12 = abs(u_12/sqrt(MASSRATIO));
+    (Mach12 <= (1./sqrt(MASSRATIO))) ? (Mach12 = 1./sqrt(MASSRATIO)) : (Mach12 = Mach12);
+    (Mach12 >= 1.) ? (Mach12 = 1.) : (Mach12 = Mach12);
+    return 0.5*MASSRATIO*(n_eR + n_eL) - 0.5*sqrt(MASSRATIO)*Mach12*(v_eR - v_eL)*(n_eR + n_eL)/2.;//*Mach12
+    
+    
+    
+    // Old implementation
+    //const double Mach12 = max(abs(u_12/sqrt(MASSRATIO)), 1.);
+    //return 0.5*MASSRATIO*(n_eR + n_eL) - 0.5*sqrt(MASSRATIO)*Mach12*(v_eR - v_eL);
+    
+}
+
+double APIMEXTwoFluidIsothermal::densityNumericalViscosity(const double niP1,const double ni, const double niM1){
+    const double pressureViscosity = std::log(niP1) + std::log(niM1) - 2*std::log(ni);
+    //const double pressureViscosity = 2*(niP1 - ni)/(niP1 + ni) - 2*(ni - niM1)/(ni + niM1);
+    const double Dx = getDx();
+    const double LorentzViscosity  = Dx*Dx*DEBYELENGTH*DEBYELENGTH*ni;
+    
+    const double DtovDx = getDtOvDx();
+    
+    return DtovDx*DtovDx*MASSRATIO*(pressureViscosity - LorentzViscosity);
+}
+
+void APIMEXTwoFluidIsothermal::computeElectronDensity()
+{
+    setBoundaries();
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    // TODO: See if I can store the CC values in a reference vector
+    
+    // Set the Dx so it is easier to access later
+    const double Dx     = cells[0].dx; //Assuming the cells have the same delta_x
+    setDx(Dx);
+    const double DtOvDx = getDtOvDx();
+    const double Dt     = DtOvDx*Dx;
+    
+    //    //cout<<" ENTERING THE computeElectronDensity() \n";
+    //    // DEBUGGING COMMENTS
+    //    //cout<< "Initial Field \n";
+    //    for(int iEq = 0; iEq < NBEQS; ++iEq){
+    //        for (int iCell = 0; iCell<NBCELLS; iCell++)
+    //        {
+    //            //cout<<"iEq = "<<iEq<<"\t u.CC["<<iCell<<"] = "<<cells[iCell].uCC[iEq]<<"\n";
+    //        }
+    //    }
+    
+    
+
+    
+    // DEBUGGING COMMENTS
+    //    //cout<< "Boundary Conditions \n";
+    //    for(int iEq = 0; iEq < NBEQS; ++iEq){
+    //        //cout<<"iEq = "<<iEq<<"\t inlet = "<< m_uInlet[iEq] <<"\t outlet = "<< m_uOutlet[iEq] <<"\n";
+    //    }
+    
+    // Reconstruction
+    m_reconstructor->reconstructField();
+    
+    // DEBUGGING COMMENTS
+    //    //cout<< "Reconstruction \n";
+    //    for(int iEq = 0; iEq < NBEQS; ++iEq){
+    //        for (int iCell = 0; iCell<NBCELLS; iCell++)
+    //        {
+    //            //cout<<"iEq = "<<iEq<<"\t u.L["<<iCell<<"] = "<<cells[iCell].uL[iEq]<<"\t u.R["<<iCell<<"] = "<<cells[iCell].uR[iEq]<<"\n";
+    //        }
+    //    }
+    
+    // Main loop
+    
+    double n_ii, n_ei;
+    double n_eiP1, n_eiM1;
+    double u_ip12, u_im12;
+    double numVisc, factor;
+    
+    // First cell
+    n_ii = cells[0].uCC[2];
+    n_ei = cells[0].uCC[0];
+    n_eiP1 = cells[1].uCC[0];
+    n_eiM1 = m_uInlet[0];
+    u_ip12   = velocityFlux(cells[0].uR, cells[1].uL);
+    u_im12   = velocityFlux(m_uInlet, cells[0].uL);
+    numVisc     = densityNumericalViscosity(n_eiP1, n_ei, n_eiM1);
+    const double theta = 1.;
+    factor      = (1 + theta*Dt*Dt*n_ii*MASSRATIO*DEBYELENGTH*DEBYELENGTH);
+    
+    m_inverseDensity[0] = (1/n_ei)*(1 + DtOvDx*(u_ip12 - u_im12) - theta*numVisc)/factor;
+    
+    int n1 = NBCELLS - 1;
+    
+    for (unsigned int iCell = 1; iCell < n1; ++iCell)
+    {
+        n_ii = cells[iCell].uCC[2];
+        n_ei = cells[iCell].uCC[0];
+        n_eiP1 = cells[iCell + 1].uCC[0];
+        n_eiM1 = cells[iCell - 1].uCC[0];
+        u_ip12   = velocityFlux(cells[iCell].uR, cells[iCell + 1].uL);
+        u_im12   = velocityFlux(cells[iCell - 1].uR, cells[iCell].uL);
+        numVisc     = densityNumericalViscosity(n_eiP1, n_ei, n_eiM1);
+        factor      = (1 + theta*Dt*Dt*n_ii*MASSRATIO*DEBYELENGTH*DEBYELENGTH);
+        
+        //cout<<"numVisc = "<<numVisc<<"\n";
+        //cout<<"factor  = "<<factor<<"\n";
+        
+        m_inverseDensity[iCell] = (1/n_ei)*(1 + DtOvDx*(u_ip12 - u_im12) - theta*numVisc)/factor;
+        
+    }
+    
+    // Last cell
+    n_ii = cells[n1].uCC[2];
+    n_ei = cells[n1].uCC[0];
+    n_eiP1 = m_uOutlet[0];
+    n_eiM1 = cells[n1 - 1].uCC[0];
+    u_ip12   = velocityFlux(cells[n1].uR, m_uOutlet);
+    u_im12   = velocityFlux(cells[n1 - 1].uR, cells[n1].uL);
+    numVisc     = densityNumericalViscosity(n_eiP1, n_ei, n_eiM1);
+    factor      = (1 + theta*Dt*Dt*n_ii*MASSRATIO*DEBYELENGTH*DEBYELENGTH);
+    
+    m_inverseDensity[n1] = (1/n_ei)*(1 + DtOvDx*(u_ip12 - u_im12) - theta*numVisc)/factor;
+    
+    for (int iCell = 0; iCell<NBCELLS; iCell++)
+    {
+        // Update of the electron density
+        m_density_nP1Minus[iCell] = 1/m_inverseDensity[iCell];
+    }
+    
+//    // Update the density
+//    for (int iCell = 0; iCell<NBCELLS; iCell++)
+//    {
+//        // Update of the electron density
+//        cells[iCell].uCC[0] = m_density_nP1Minus[iCell];
+//    }
+    
+    // DEBUGGING COMMENTS
+    //    //cout<< "Computed Field \n";
+    //    for (int iCell = 0; iCell<NBCELLS; iCell++)
+    //    {
+    //        //cout<<"iEq = "<<0<<"\t u.CC["<<iCell<<"] = "<<cells[iCell].uCC[0]<<"\n";
+    //    }
+    
+}
+
+void APIMEXTwoFluidIsothermal::computeElectricPotential(){
+    
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    double* source = MeshData::getInstance().get2DData<double>("source").mutable_data(0,0);
+    vector<double>& phi    = MeshData::getInstance().getData<double>("Phi");
+    const double Dx = cells[0].dx; //Assuming the cells have the same delta_x
+    const double DebyeLength = DEBYELENGTH;
+    const double MassRatio   = MASSRATIO;
+    
+    // Compute the matrix for the Poisson solver
+    for (unsigned int iCell = 0; iCell < NBCELLS; ++iCell)
+    {
+        //const double rho_e   = cells[iCell].uCC[0];
+        const double rho_e   = m_density_nP1Minus[iCell];
+        const double rho_i   = cells[iCell].uCC[2];
+        
+        m_B[iCell] = DebyeLength*DebyeLength*(rho_e - rho_i)*Dx*Dx;
+    }
+    // Add the boundary values for the Poisson Solver
+    const double Phi_in = 2*PHIIN - phi[0];
+    const double Phi_out = 2*PHIOUT - phi[NBCELLS -1];
+    m_B[0] = m_B[0] - Phi_in;
+    m_B[NBCELLS - 1] = m_B[NBCELLS - 1] - Phi_out;
+    
+    // Compute the variable Phi (that is in m_x)
+    m_linearSolver->solveLinearSystem(m_A, m_x, m_B);
+    phi = m_x; // copy the value of m_x to phi
+    
+    
+    // compute grad Phi
+    const int n1 = NBCELLS - 1;
+    m_gradPhi[0] = (m_x[1] - Phi_in)/(2*Dx);
+    for(unsigned int iCell = 1; iCell < n1; ++iCell){
+        m_gradPhi[iCell] = (m_x[iCell + 1] - m_x[iCell - 1])/(2*Dx);
+    }
+    
+    m_gradPhi[n1] = (Phi_out - m_x[NBCELLS - 2])/(2*Dx);
+}
+
+void APIMEXTwoFluidIsothermal::computeElectronVelocity(){
+    
+    //setBoundaries();
+    
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    
+    // TODO: See if I can store the CC values in a reference vector
+    // old boundary call = MeshData::getInstance().getData<double>("boundaries");
+    
+    // Set the Dx so it is easier to access later
+    const double Dx     = cells[0].dx; //Assuming the cells have the same delta_x
+    setDx(Dx);
+    const double DtOvDx = getDtOvDx();
+    const double Dt     = DtOvDx*Dx;
+    
+    
+    // Reconstruction
+    // WATCH OUT!!!!!!!!!!!!!
+    // This can be done more efficiently if I reconstruct only the electron density
+    m_reconstructor->reconstructField();
+    
+    // Main loop
+    
+    double u_ei, n_ei;
+    double p_ip12, p_im12;
+    
+    // First cell
+    n_ei = cells[0].uCC[0];
+    u_ei = cells[0].uCC[1]/n_ei;
+    p_ip12   = pressureFlux(cells[0].uR, cells[1].uL);
+    p_im12   = pressureFlux(m_uInlet, cells[0].uL);
+    
+    m_velocity[0] = u_ei - DtOvDx/n_ei*(p_ip12 - p_im12) + Dt*MASSRATIO*m_gradPhi[0];
+    m_momentum_nP1Minus[0] = m_density_nP1Minus[0]*m_velocity[0];
+    
+    //cout<<"m_density_nP1Minus[0] = "<<m_density_nP1Minus[0]<<"\n";
+    //cout<<"p_ip12 - p_im12 = "<<p_ip12 - p_im12<<"\n";
+    //cout<<"m_gradPhi[0] = "<<m_gradPhi[0]<<"\n";
+    //cout<<"m_momentum_nP1Minus[0] = "<<m_momentum_nP1Minus[0]<<"\n";
+    
+    int n1 = NBCELLS - 1;
+    
+    for (unsigned int iCell = 1; iCell < n1; ++iCell)
+    {
+        n_ei = cells[iCell].uCC[0];
+        u_ei = cells[iCell].uCC[1]/n_ei;
+        p_ip12   = pressureFlux(cells[iCell].uR, cells[iCell + 1].uL);
+        p_im12   = pressureFlux(cells[iCell - 1].uR, cells[iCell].uL);
+        
+        m_velocity[iCell] = u_ei - DtOvDx/n_ei*(p_ip12 - p_im12) + Dt*MASSRATIO*m_gradPhi[iCell];
+        m_momentum_nP1Minus[iCell] = m_density_nP1Minus[iCell]*m_velocity[iCell];
+    }
+    
+    // Last cell
+    n_ei = cells[n1].uCC[0];
+    u_ei = cells[n1].uCC[1]/n_ei;
+    p_ip12   = pressureFlux(cells[n1].uR, m_uOutlet);
+    p_im12   = pressureFlux(cells[n1 - 1].uR, cells[n1].uL);
+    
+    m_velocity[n1] = u_ei - DtOvDx/n_ei*(p_ip12 - p_im12) + Dt*MASSRATIO*m_gradPhi[n1];
+    m_momentum_nP1Minus[n1] = m_density_nP1Minus[n1]*m_velocity[n1];
+    
+    
+//    // Update the density
+//    for (int iCell = 0; iCell<NBCELLS; iCell++)
+//    {
+//        // Update of the electron density
+//        cells[iCell].uCC[0] = m_density_nP1Minus[iCell];
+//    }
+//    // Update the velocity
+//    for (int iCell = 0; iCell<NBCELLS; iCell++)
+//    {
+//        // Update of the electron density
+//        cells[iCell].uCC[1] = m_velocity[iCell];
+//    }
+
+    
+}
+
+void APIMEXTwoFluidIsothermal::computeEulerianStep(){
+    
+    //setBoundaries();
+    
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    
+    // TODO: See if I can store the CC values in a reference vector
+    // old boundary call = MeshData::getInstance().getData<double>("boundaries");
+    
+    // Set the Dx so it is easier to access later
+    const double Dx     = cells[0].dx; //Assuming the cells have the same delta_x
+    setDx(Dx);
+    const double DtOvDx = getDtOvDx();
+    const double Dt     = DtOvDx*Dx;
+    
+    // copy the boundaries to a value
+
+    
+    // Reconstruction
+    // WATCH OUT!!!!!!!!!!!!!
+    m_reconstructor->reconstructField();
+    
+    // Main loop
+    
+    double u_ei, n_ei, nu_ei;
+    double n_eip12, n_eim12;
+    double n_eiP1, n_eiM1;
+    double nu_eiP1, nu_eiM1;
+    double nu_eip12, nu_eim12;
+    double u_ip12, u_im12;
+    //double p_ip12, p_im12;
+    double factor;
+    
+    const double ionizConst = IONIZCONST;
+    const double T_e        = 1.;
+    const double ionization_Constant = ionizConst*exp(-EPSIONIZ/T_e);
+    const double nn         = computeIonizationConstant();
+    const double nu_iz      = nn*ionization_Constant;
+    
+    // First cell
+    n_ei = m_density_nP1Minus[0];
+    n_eiP1 = m_density_nP1Minus[1];
+    n_eiM1 = m_uInlet[0];
+    nu_eiP1 = m_momentum_nP1Minus[1];
+    nu_eiM1 = m_uInlet[1];
+    nu_ei = m_momentum_nP1Minus[0];
+    u_ei = nu_ei/n_ei;
+    u_ip12   = velocityFlux(cells[0].uR, cells[1].uL);
+    u_im12   = velocityFlux(m_uInlet, cells[0].uL);
+    //p_ip12   = pressureFlux(cells[0].uR, cells[1].uL);
+    //p_im12   = pressureFlux(m_uInlet, cells[0].uL);
+    factor   = 1 + DtOvDx*(u_ip12 - u_im12);
+    
+    // We store in the previous vectors
+    n_eip12 = (u_ip12 > 0)? n_ei: n_eiP1;
+    n_eim12 = (u_im12 > 0)? n_eiM1: n_ei;
+    nu_eip12 = (u_ip12 > 0)? nu_ei: nu_eiP1;
+    nu_eim12 = (u_im12 > 0)? nu_eiM1: nu_ei;
+    //m_density_nP1[0]  = cells[0].uCC[0] - DtOvDx*(n_eip12*u_ip12 - n_eim12*u_im12);
+    
+    // Test 0
+    //m_momentum_nP1[0] = cells[0].uCC[1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12 +
+    //                                              p_ip12 - p_im12) + Dt*MASSRATIO*cells[0].uCC[0]*m_gradPhi[0];
+    // Test 1
+    //m_momentum_nP1[0] = cells[0].uCC[1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12 +
+    //                                              p_ip12 - p_im12);
+    
+    // Step taking only np1_minus
+    m_density_nP1[0]  = m_density_nP1Minus[0] - DtOvDx*(n_eip12*u_ip12 - n_eim12*u_im12) + DtOvDx*(u_ip12 - u_im12)*m_density_nP1Minus[0];
+    m_momentum_nP1[0] = m_momentum_nP1Minus[0] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12) + DtOvDx*(u_ip12 - u_im12)*m_momentum_nP1Minus[0];
+    
+    int n1 = NBCELLS - 1;
+    
+    for (unsigned int iCell = 1; iCell < n1; ++iCell)
+    {
+        n_ei = m_density_nP1Minus[iCell];
+        n_eiP1 = m_density_nP1Minus[iCell + 1];
+        n_eiM1 = m_density_nP1Minus[iCell - 1];
+        nu_eiP1 = m_momentum_nP1Minus[iCell + 1];
+        nu_eiM1 = m_momentum_nP1Minus[iCell - 1];
+        nu_ei = m_momentum_nP1Minus[iCell];
+        u_ei    = nu_ei/n_ei;
+        u_ip12   = velocityFlux(cells[iCell].uR, cells[iCell + 1].uL);
+        u_im12   = velocityFlux(cells[iCell - 1].uR, cells[iCell].uL);
+        //p_ip12   = pressureFlux(cells[iCell].uR, cells[iCell + 1].uL);
+        //p_im12   = pressureFlux(cells[iCell - 1].uR, cells[iCell].uL);
+        factor   = 1 + DtOvDx*(u_ip12 - u_im12);
+        
+        // We store in the previous vectors
+        n_eip12 = (u_ip12 > 0)? n_ei: n_eiP1;
+        n_eim12 = (u_im12 > 0)? n_eiM1: n_ei;
+        nu_eip12 = (u_ip12 > 0)? nu_ei: nu_eiP1;
+        nu_eim12 = (u_im12 > 0)? nu_eiM1: nu_ei;
+        //m_density_nP1[iCell]  = cells[iCell].uCC[0] - DtOvDx*(n_eip12*u_ip12 - n_eim12*u_im12);
+        // Test 0
+        //m_momentum_nP1[iCell] = cells[iCell].uCC[1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12 +
+        //                                              p_ip12 - p_im12) + Dt*MASSRATIO*cells[iCell].uCC[0]*m_gradPhi[iCell];
+        // Test 1
+        //m_momentum_nP1[iCell] = cells[iCell].uCC[1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12 +
+        //                                                      p_ip12 - p_im12);
+        // Step taking only np1_minus
+        m_density_nP1[iCell]  = m_density_nP1Minus[iCell] - DtOvDx*(n_eip12*u_ip12 - n_eim12*u_im12) + DtOvDx*(u_ip12 - u_im12)*m_density_nP1Minus[iCell];
+        m_momentum_nP1[iCell] = m_momentum_nP1Minus[iCell] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12) + DtOvDx*(u_ip12 - u_im12)*m_momentum_nP1Minus[iCell];
+    }
+    
+    // Last cell
+    n_ei = m_density_nP1Minus[n1];
+    n_eiP1 = m_uOutlet[0];
+    n_eiM1 = m_density_nP1Minus[n1 - 1];
+    nu_eiP1 = m_uOutlet[1];
+    nu_eiM1 = m_momentum_nP1Minus[n1 - 1];
+    nu_ei = m_momentum_nP1Minus[n1];
+    u_ei = nu_ei/n_ei;
+    u_ip12   = velocityFlux(cells[n1].uR, m_uOutlet);
+    u_im12   = velocityFlux(cells[n1 - 1].uR, cells[n1].uL);
+    //p_ip12   = pressureFlux(cells[n1].uR, m_uOutlet);
+    //p_im12   = pressureFlux(cells[n1 - 1].uR, cells[n1].uL);
+    factor   = 1 + DtOvDx*(u_ip12 - u_im12);
+    
+    // We store in the previous vectors
+    n_eip12 = (u_ip12 > 0)? n_ei: n_eiP1;
+    n_eim12 = (u_im12 > 0)? n_eiM1: n_ei;
+    nu_eip12 = (u_ip12 > 0)? nu_ei: nu_eiP1;
+    nu_eim12 = (u_im12 > 0)? nu_eiM1: nu_ei;
+    //m_density_nP1[n1]  = cells[n1].uCC[0] - DtOvDx*(n_eip12*u_ip12 - n_eim12*u_im12);
+    // Test 0
+    //m_momentum_nP1[n1] = cells[n1].uCC[1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12 +
+    //                                                      p_ip12 - p_im12) + Dt*MASSRATIO*cells[n1].uCC[0]*m_gradPhi[n1];
+    // Test 1
+    //m_momentum_nP1[n1] = cells[n1].uCC[1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12 +
+    //                                                p_ip12 - p_im12);
+    m_density_nP1[n1]  = m_density_nP1Minus[n1] - DtOvDx*(n_eip12*u_ip12 - n_eim12*u_im12) + DtOvDx*(u_ip12 - u_im12)*m_density_nP1Minus[n1];
+    m_momentum_nP1[n1] = m_momentum_nP1Minus[n1] - DtOvDx*(nu_eip12*u_ip12 - nu_eim12*u_im12) + DtOvDx*(u_ip12 - u_im12)*m_momentum_nP1Minus[n1];
+    
+}
+
+double APIMEXTwoFluidIsothermal::computeIonizationConstant(){
+    
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    // old boundary call = MeshData::getInstance().getData<double>("boundaries");
+    vector<CellDataRef>& boundaries  = MeshData::getInstance().getData<CellDataRef>("boundaries");
+
+    const double T_e     = 1.;
+    const double ionizConst = IONIZCONST;
+    const double ionization_Constant = ionizConst*exp(-EPSIONIZ/T_e);
+    const double Dx = cells[0].dx; //Assuming the cells have the same delta_x
+    const int n1 = NBCELLS - 1;
+    double integral = 0.;
+    
+    // First cell
+    // Order of boundaries
+    // boundaries = [rho_eInlet, rho_eOutlet, rhoU_eInlet, rhoU_eOutlet, rho_iInlet, rho_iOutlet, rhoU_iInlet, rhoU_iOutlet,]
+    double rhoe_Ghost = boundaries[0][0];
+    double rho_iP1    = cells[0].uCC[0];
+    double rhoe_Wall  = (rhoe_Ghost + rho_iP1)/2.;
+    integral += (rhoe_Wall + rho_iP1)/2.*Dx/2.; // We sum the first half cell
+    
+    
+    for (unsigned int iCell = 0; iCell < n1; ++iCell)
+    {
+        double rho_i = cells[iCell].uCC[0];
+        rho_iP1      = cells[iCell + 1].uCC[0];
+        integral += (rho_iP1 + rho_i)/2.*Dx; // We sum the first half cell
+    }
+    // Last cell
+    rhoe_Ghost  = boundaries[1][0];
+    double rho_i       = cells[n1].uCC[0];
+    rhoe_Wall  = (rhoe_Ghost + rho_i)/2.;
+    integral += (rhoe_Wall + rho_i)/2.*Dx/2.; // We sum the first half cell
+    integral = integral*ionization_Constant;
+    
+    // Flux of ions
+    double Flux_i = abs(boundaries[1][3]);
+    double Da = 2*Flux_i/integral;
+    
+    // Flux of the electrons
+    //double soundSpeed_e = SOUNDSPEED[0]; //We assume the electrons to be the first fluid
+    //double rhoe_eG      = cells[0].uCC[0];
+    //const double pi     = atan(1)*4;
+    //double FluxW_e      = rhoe_eG*soundSpeed_e/sqrt(2*pi);
+    //double Da = 2*FluxW_e/integral;
+    
+    if (Da > 0) {// At the beginning the flux can become negative and then the ionization also is negative. We set it to zero in this case.
+        return Da;
+    }
+    else {
+        return 0.;
+    }
+    
+}
+
+void APIMEXTwoFluidIsothermal::computeSources(){
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    double* source = MeshData::getInstance().get2DData<double>("source").mutable_data(0,0);
+    
+    
+    const double Dx = cells[0].dx; //Assuming the cells have the same delta_x
+    const double DebyeLength = DEBYELENGTH;
+    const double MassRatio   = MASSRATIO;
+    
+    // Compute ionization
+    const double ionizConst = IONIZCONST;
+    const double T_e        = 1.;
+    const double ionization_Constant = ionizConst*exp(-EPSIONIZ/T_e);
+    const double nn         = computeIonizationConstant();
+    const double nu_iz      = nn*ionization_Constant;
+    
+    for (unsigned int iCell = 0; iCell < NBCELLS; ++iCell)
+    {
+        // Compute the variables
+        const double rho_e   = cells[iCell].uCC[0];
+        const double rho_i   = cells[iCell].uCC[2];
+        //gradPhi = mdVec(1).gradient(1,:);
+        const double u_e     = cells[iCell].uCC[1]/rho_e;
+        const double u_i     = cells[iCell].uCC[3]/rho_i;
+        const double massRatio = MASSRATIO;
+        const double collConstIons = COLLIONS;
+        const double collConstElec = COLLELECTRONS;
+        
+        // Compute Ionization Constant with an integration
+        const double ionization = nu_iz*rho_e;
+        
+        source[0*NBCELLS + iCell] = ionization;
+        source[1*NBCELLS + iCell] = (- collConstElec*rho_e*u_e);
+        source[2*NBCELLS + iCell] = ionization;
+        source[3*NBCELLS + iCell] = (-m_gradPhi[iCell]*rho_i - collConstIons*rho_i*u_i);
+        
+    }
+}
+
+
+void APIMEXTwoFluidIsothermal::setBoundaries(){
+    
+    // old boundary call = MeshData::getInstance().getData<double>("boundaries");
+    
+    m_uInlet  = m_InletBC->setBoundary();
+    m_uOutlet = m_OutletBC->setBoundary();
+    // TODO: Write it general in a class
+
+}
+
+void APIMEXTwoFluidIsothermal::computeIonFlux(){
+    
+    //setBoundaries();
+    
+    const int    n1 = NBCELLS - 1;          // number of cells minus 1
+    
+    FluxScheme& flux1D          = *m_flux;      // reference is used to keep the same syntax as before
+    SourceTerm& sourceterm      = *m_source;
+    vector<Cell1D>& cells       = MeshData::getInstance().getData<Cell1D>("Cells");
+    // TODO: See if I can store the CC values in a reference vector
+    vector<double>& rhs         = MeshData::getInstance().getData<double>("rhs");
+    // old boundary call  = MeshData::getInstance().getData<double>("boundaries");
+    
+    // DEBUGGING COMMENTS
+    //    //cout<< "Initial Field \n";
+    //    for(int iEq = 2; iEq < NBEQS; ++iEq){
+    //        for (int iCell = 0; iCell<NBCELLS; iCell++)
+    //        {
+    //            //cout<<"iEq = "<<iEq<<"\t u.CC["<<iCell<<"] = "<<cells[iCell].uCC[iEq]<<"\n";
+    //        }
+    //    }
+    
+    
+
+    // DEBUGGING COMMENTS
+    //    //cout<< "Boundary Conditions \n";
+    //    for(int iEq = 2; iEq < NBEQS; ++iEq){
+    //        //cout<<"iEq = "<<iEq<<"\t inlet = "<< m_uInlet[iEq] <<"\t outlet = "<< m_uOutlet[iEq] <<"\n";
+    //    }
+    
+    // Reconstruction
+    m_reconstructor->reconstructField();
+    
+    // DEBUGGING COMMENTS
+    //    //cout<< "Reconstruction \n";
+    //    for(int iEq = 2; iEq < NBEQS; ++iEq){
+    //        for (int iCell = 0; iCell<NBCELLS; iCell++)
+    //        {
+    //            //cout<<"iEq = "<<iEq<<"\t u.L["<<iCell<<"] = "<<cells[iCell].uL[iEq]<<"\t u.R["<<iCell<<"] = "<<cells[iCell].uR[iEq]<<"\n";
+    //        }
+    //    }
+    
+    double maxEigenvalue = 0;
+    
+    // Main loop
+    m_Fip12         = flux1D(cells[0].uR, cells[1].uL);
+    m_Fim12         = flux1D(m_uInlet, cells[0].uL);
+    // First cell
+    for (unsigned int iEq = 2; iEq < NBEQS; iEq++){
+        // compute the flux
+        rhs[iEq*NBCELLS]        = m_Fip12[iEq] - m_Fim12[iEq];
+    }
+    
+    // Loop over inner cells
+    for (int iCell = 1; iCell < n1; ++iCell) {
+        m_Fip12         = flux1D(cells[iCell].uR, cells[iCell+1].uL);
+        m_Fim12         = flux1D(cells[iCell-1].uR, cells[iCell].uL);
+        for (unsigned int iEq = 2; iEq < NBEQS; iEq++){
+            // compute the flux
+            rhs[iEq*NBCELLS + iCell]    = m_Fip12[iEq] - m_Fim12[iEq];
+        }
+        
+    } // integral flux on internal cells
+    // Last cell
+    m_Fip12         = flux1D(cells[n1].uR, m_uOutlet);
+    m_Fim12         = flux1D(cells[n1-1].uR, cells[n1].uL);
+    for (unsigned int iEq = 2; iEq < NBEQS; iEq++){
+        // compute the flux
+        rhs[iEq*NBCELLS + n1]       = m_Fip12[iEq] - m_Fim12[iEq];
+    }
+    
+    // DEBUGGING COMMENTS
+    //    //cout<< "Fluxes \n";
+    //    for(int iEq = 2; iEq < NBEQS; ++iEq){
+    //        for (int iCell = 0; iCell<NBCELLS; iCell++)
+    //        {
+    //            //cout<<"iEq = "<<iEq<<"\t rhs["<<iCell<<"] = "<<rhs[iEq*NBCELLS + iCell]<<"\n";
+    //        }
+    //    }
+    
+    //    const double sourceFrequency = sourceterm.getFrequency();
+    //    if(abs(sourceFrequency) < 1e-12){ // case where the frequency is close to zero
+    //        const double dtOvdx_convective   = CFL/maxEigenvalue;
+    //        m_dtOvdx = dtOvdx_convective;
+    //    }
+    //    else{
+    //        const double Dx                  = cells[0].dx; //Assuming the cells have the same delta_x
+    //        const double dtOvdx_source       = CFL/(sourceFrequency*Dx);
+    //        const double dtOvdx_convective   = CFL/maxEigenvalue;
+    //
+    //        ////cout<<"dtOvdx_source = "<< dtOvdx_source <<"\tdtOvdx_convective = "<< dtOvdx_convective <<"\n";
+    //        m_dtOvdx = min(dtOvdx_source, dtOvdx_convective);
+    //    }
+}
+
+void APIMEXTwoFluidIsothermal::takeStep(double dt){
+    APIMEXTwoFluidIsothermal::takeStep();
+
+}
+
+void APIMEXTwoFluidIsothermal::takeStep()
+{
+    
+    vector<Cell1D>& cells = MeshData::getInstance().getData<Cell1D>("Cells");
+    // TODO: See if I can store the CC values in a reference vector
+    vector<double>& rhs = MeshData::getInstance().getData<double>("rhs");
+    double* source = MeshData::getInstance().get2DData<double>("source").mutable_data(0,0);
+    vector<double>& phi    = MeshData::getInstance().getData<double>("Phi");    //// old boundary call = MeshData::getInstance().getData<double>("boundaries");
+    
+    double& physTime = MeshData::getInstance().getData<double>("physTime")[0];
+    
+    setDt();
+    
+    m_iter++;
+    
+    // First step
+    // Compute electron density at t = t^*
+    computeElectronDensity();
+    // Compute Electric Potential
+    computeElectricPotential();
+    // Compute Electron Velocity
+    computeElectronVelocity();
+    // Computing electron eulerian step
+    computeEulerianStep();
+    // Computing sources
+    computeSources();
+    // Computing the ion convective terms
+    computeIonFlux();
+    
+    
+    double k = getDtOvDx();
+    double dt = k*cells[0].dx; //Assuming the cells have the same delta_x
+    
+    // Initialize the norm with zeroes
+    std::fill(m_norm.begin(), m_norm.end(), 0.);
+    double Residual_Density_e, Residual_Momentum_e;
+    
+    // Update the electrons
+    for (int iCell = 0; iCell < NBCELLS; ++iCell) {
+        Residual_Density_e  = (m_density_nP1[iCell] + dt*source[0*NBCELLS + iCell] - cells[iCell].uCC[0])/k;
+        Residual_Momentum_e = (m_momentum_nP1[iCell] + dt*source[1*NBCELLS + iCell] - cells[iCell].uCC[1])/k;
+        
+        // Update
+        cells[iCell].uCC[0] = m_density_nP1[iCell] + dt*source[0*NBCELLS + iCell];
+        cells[iCell].uCC[1] = m_momentum_nP1[iCell] + dt*source[1*NBCELLS + iCell];
+        
+        m_norm[0] += Residual_Density_e*Residual_Density_e;
+        m_norm[1] += Residual_Momentum_e*Residual_Momentum_e;
+    }
+    
+    // Check that the norm is not zero
+//    if(m_norm[0] != 0 ){ //check that the residual is not -inf
+//        m_norm[0] = log10(sqrt(m_norm[0]));
+//    }
+//    else{ m_norm[0] = 0.; } //when the residual is 0, we set the log to 0 as well
+//    if(m_norm[1] != 0 ){ //check that the residual is not -inf
+//        m_norm[1] = log10(sqrt(m_norm[1]));
+//    }
+//    else{ m_norm[1] = 0.; } //when the residual is 0, we set the log to 0 as well
+    
+    
+    //Update the ions
+    for(unsigned int iEq = 2; iEq < NBEQS; ++iEq){
+        for (int iCell = 0; iCell < NBCELLS; ++iCell) {
+            const double rhsU    = rhs[iEq*NBCELLS + iCell];
+            const double S_i     = source[iEq*NBCELLS + iCell];
+            
+            cells[iCell].uCC[iEq] = cells[iCell].uCC[iEq] - k*rhsU + S_i*dt;
+            const double Residual = S_i*cells[0].dx - rhsU;
+            m_norm[iEq] += Residual*Residual;
+        }
+        // Check that the norm is not zero
+//        if(m_norm[iEq] != 0 ){ //check that the residual is not -inf
+//            m_norm[iEq] = log10(sqrt(m_norm[iEq]));
+//        }
+//        else{ m_norm[iEq] = 0.; } //when the residual is 0, we set the log to 0 as well
+    }
+    
+    physTime += dt;
+    
+}
