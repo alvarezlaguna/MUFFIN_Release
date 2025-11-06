@@ -8,6 +8,8 @@ git clone https://github.com/alvarezlaguna/MUFFIN_Release.git ./MUFFIN
 
 git submodule update --init --recursive
 
+IF YOU HAVE ALREADY CONDA IN YOUR SYSTEM, YOU CAN SKIP TO STEP 4
+
 3) Download mamba-forge in order to manage the packages. In the following website download the Mambaforge for your specific distribution:
 
 https://github.com/conda-forge/miniforge
