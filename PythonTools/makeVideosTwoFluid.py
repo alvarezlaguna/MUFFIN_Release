@@ -37,8 +37,11 @@ def make_videos(ResultDir: str, MASSRATIO: float = 100000.0, saverate: int = 2, 
     FigureDir = os.path.join(ResultDir, "Figures")
     os.makedirs(FigureDir, exist_ok=True)
 
+    # collect both text and HDF5 files
     files = glob.glob(os.path.join(ResultDir, "*.txt"))
-    files.sort(key=os.path.getmtime)
+    files += glob.glob(os.path.join(ResultDir, "*.h5"))
+    files += glob.glob(os.path.join(ResultDir, "*.hdf5"))
+    files = sorted(files, key=os.path.getmtime)
 
     frame_idx = 0
     file_idx = 0
@@ -50,20 +53,8 @@ def make_videos(ResultDir: str, MASSRATIO: float = 100000.0, saverate: int = 2, 
         file_idx += 1
         if file_idx % saverate == 0:
             frame_idx += 1
-            results = []
-            with open(filename, 'r') as data:
-                for line in data:
-                    p = line.split()
-                    results.append(np.array(p))
-
-            # Transpose and change data type
-            results = np.array(results)
-            resultsTP = np.transpose(results)
-
-            # Use explicit dtype to avoid deprecated aliases
-            resultsTP = resultsTP.astype(np.float64)
-
-            plotData = plotResults.Data(resultsTP)
+            # Initialize plot data from file (supports .txt and .h5/.hdf5)
+            plotData = plotResults.Data(array=None, filename=filename)
 
             plt.rcParams["font.family"] = 'Times New Roman'
 
@@ -83,7 +74,17 @@ def make_videos(ResultDir: str, MASSRATIO: float = 100000.0, saverate: int = 2, 
             plt.legend(loc='upper left', fontsize=12)
 
             f.suptitle('Density', fontname='Times New Roman', fontsize=16, weight='bold')
-            ax.set_title(r'$t = $' + str(round(float(time), 2)), loc='right')
+            # prefer time from HDF5 dataset if available
+            use_time = getattr(plotData, 'time', None)
+            if use_time is None:
+                # fallback to filename-based time
+                try:
+                    base = os.path.basename(filename)
+                    filenameBase = os.path.splitext(base)[0]
+                    use_time = float(filenameBase.rsplit('_', 1)[-1])
+                except Exception:
+                    use_time = None
+            ax.set_title(r'$t = $' + (str(round(float(use_time), 2)) if use_time is not None else 'N/A'), loc='right')
 
             # ax.set_ylim([0,2.2])
             ax.set_ylim([0, 2.2])
@@ -103,7 +104,7 @@ def make_videos(ResultDir: str, MASSRATIO: float = 100000.0, saverate: int = 2, 
             plt.legend(loc='upper left', fontsize=12)
 
             f.suptitle('Flux', fontname='Times New Roman', fontsize=16, weight='bold')
-            ax.set_title(r'$t = $' + str(round(float(time), 2)), loc='right')
+            ax.set_title(r'$t = $' + (str(round(float(use_time), 2)) if use_time is not None else 'N/A'), loc='right')
 
             ymin = min(nU_e)
             ymax = max(nU_e)
@@ -124,7 +125,7 @@ def make_videos(ResultDir: str, MASSRATIO: float = 100000.0, saverate: int = 2, 
             plt.legend(loc='upper left', fontsize=12)
 
             f.suptitle('Velocity', fontname='Times New Roman', fontsize=16, weight='bold')
-            ax.set_title(r'$t = $' + str(round(float(time), 2)), loc='right')
+            ax.set_title(r'$t = $' + (str(round(float(use_time), 2)) if use_time is not None else 'N/A'), loc='right')
 
             ax.set_ylim([-4, 4])
             ax.grid(True)
@@ -147,7 +148,7 @@ def make_videos(ResultDir: str, MASSRATIO: float = 100000.0, saverate: int = 2, 
             ax.yaxis.set_tick_params(which='both', size=5, width=1.5, labelsize=13)
 
             f.suptitle('Potential', fontname='Times New Roman', fontsize=16, weight='bold')
-            ax.set_title(r'$t = $' + str(round(float(time), 2)), loc='right')
+            ax.set_title(r'$t = $' + (str(round(float(use_time), 2)) if use_time is not None else 'N/A'), loc='right')
 
             plt.text(0.9 * max(x), 1.04 * max(phi_W), r'$\phi_W$', fontsize=13, color=(0, 0.4, 0), weight='bold')
             plt.text(0.9 * max(x), 1.04 * max(phi_P), r'$\phi_p$', fontsize=13, color=(0, 0.6, 0), weight='bold')

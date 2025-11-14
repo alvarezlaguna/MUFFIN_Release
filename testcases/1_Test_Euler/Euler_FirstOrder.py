@@ -72,7 +72,7 @@ if os.path.exists(options['resultDir']):
 simu=muffin.Simulation1D("bonjour")
 simu.setup(options)
 a=simu.simulate()
-print(a)
+#print(a)
 
 ## Copy input file inside the Result folder
 os.system("cp "+os.path.basename(__file__)+" "+options['resultDir'])

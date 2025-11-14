@@ -174,7 +174,8 @@ Configuration::Configuration(const py::dict &options)
         Parameters::FINAL_TIME     = finalTime_Py;                  // Number of steps
     }
     
-    Parameters::DATAWRITER      = "DataWriter1DMPI";
+    // Parameters::DATAWRITER      = "DataWriter1DMPI";
+    Parameters::DATAWRITER      = "DataWriter1DH5Py";
     
     py::int_ saveRate_py = options["saveRate"];
     int saveRate = saveRate_py;
@@ -283,7 +284,7 @@ Configuration::Configuration(const py::dict &options)
         Parameters::COLLELECTRONS   = CollElectrons;
         Parameters::PHIIN           = PhiIn;
         Parameters::PHIOUT          = PhiOut;
-        Parameters::DATAWRITER      = "DataWriter1DExtendedMPI";
+        Parameters::DATAWRITER      = "DataWriter1DH5Py";
     }
     
     Parameters::UINLET.resize(nbEqs);

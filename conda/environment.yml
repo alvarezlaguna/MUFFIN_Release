@@ -17,3 +17,4 @@ dependencies:
   - jupyter
   - numpy=1.26
   - matplotlib
+  - h5py

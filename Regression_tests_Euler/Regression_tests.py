@@ -8,6 +8,14 @@ import numpy as np                              ## Mathematic operations:w
 import shutil                                   ## Remove folder
 import Euler_tests as Euler
 
+# Import plotResults helper (support installed package or local dev)
+try:
+    from PythonTools import plotResults
+except Exception:
+    import sys
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    import plotResults
+
 from contextlib import contextmanager
 import sys, os
 
@@ -44,22 +52,16 @@ def plotResult(ax, Directory, color='k', label='test 1'):
     plt.rcParams["font.weight"] = 'normal'
     plt.rcParams['figure.facecolor'] = 'white'
 
-    # open all the files in the directory and sort them to do the video in order
-    files       = glob.glob(Directory + "/*.txt")
-    files.sort(key=os.path.getmtime)
+    # open all the files in the directory and sort them (support .txt and .h5/.hdf5)
+    files = glob.glob(Directory + "/*.txt")
+    files += glob.glob(Directory + "/*.h5")
+    files += glob.glob(Directory + "/*.hdf5")
+    files = sorted(files, key=os.path.getmtime)
     filename = files[-1]
 
-    results = []
-    with open(filename, 'r') as data:
-        for line in data:
-            p = line.split()
-            results.append(np.array(p))
-
-    # Transpose and change data type
-    results = np.array(results)
-    resultsTP = np.transpose(results)
-
-    resultsTP   = resultsTP.astype(np.float_)        
+    # Use plotResults.Data to read either text or HDF5 files and get unified resultsArray
+    plotData = plotResults.Data(array=None, filename=filename)
+    resultsTP = plotData.resultsArray.astype(np.float_)
 
     # Initializing without the results to choose it directly by hand
     #plotData2 = plotResults.Data()

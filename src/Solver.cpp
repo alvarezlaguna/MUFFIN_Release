@@ -12,6 +12,7 @@
 #include "Simulation1D.hpp"
 #include "Configuration.hpp"
 #include "SourceTerm/InputFilesProvider.hpp"
+#include "DataWriter/DataWriter1DH5Py.hpp"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -142,6 +143,10 @@ PYBIND11_MODULE(muffin, m)
     py::class_<InputFilesProvider>(m, "InputFilesProvider")
         .def_static("getInstance", &InputFilesProvider::getInstance, pybind11::return_value_policy::reference)
         .def("setData", &InputFilesProvider::setData);
+
+    // py::class_<DataWriter1DH5Py>(m, "DataWriter1DH5Py")
+    //     .def(py::init<const std::string &>())
+    //     .def("writeData", &DataWriter1DH5Py::writeData);
 }
 
 

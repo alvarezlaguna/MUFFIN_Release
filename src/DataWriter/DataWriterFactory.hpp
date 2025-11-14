@@ -17,6 +17,7 @@
 #include "DataWriter1DExtended.hpp"
 #include "DataWriter1DExtendedMPI.hpp"
 #include "DataWriter1DMPI.hpp"
+#include "DataWriter1DH5Py.hpp"
 
 using namespace std;
 

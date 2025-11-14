@@ -48,6 +48,12 @@ public:
     template <class T> void delete2DData(const string& name)
     {delete (py::array_t<T>*)data.find(name)->second;}
 
+    // Safe check whether a data entry exists
+    bool hasData(const string &name) const
+    {
+        return data.find(name) != data.end();
+    }
+
 
     
 private:
