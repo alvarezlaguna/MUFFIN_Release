@@ -98,6 +98,7 @@ namespace Parameters {
     extern double FINAL_TIME;              // Final time to stop simulation
     extern double R_S;                     // Final time to stop simulation
     extern string GEOMETRY_STREAMER;                // Streamer geometry
+    extern vector<int> MOMENTUMINDICES;             // Momentum indices for fractional time splitting
 
    
 

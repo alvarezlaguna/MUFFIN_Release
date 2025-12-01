@@ -29,6 +29,8 @@ public:
     void unsetup();
     virtual void setBoundaries();
     virtual void computeRHS();
+    virtual void computeSource();
+    virtual void computeFluxes();
     virtual double getDtOvDx(){
         int world_size, world_rank;
         // We take the min dtOvdx of all the processors

@@ -27,8 +27,6 @@ void SSPRK3::takeStep(double dt)
     double& physTime = MeshData::getInstance().getData<double>("physTime")[0];
     
     m_iter++;
-    
-
 
     DELTAT    = dt;
     if(my_rank == MPI_WRITER){

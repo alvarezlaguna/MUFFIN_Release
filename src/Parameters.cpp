@@ -98,6 +98,7 @@ namespace Parameters {
     vector<double> POLYTROPICCONST(NBFLUIDS);          // vector with the polytropic constants
     vector<double> ETHRUSTERINITIAL(NBCELLS);          // Vector with the constant Electric field for the thruster model
     double CURRENTTHRUSTER     = 0.;                   // current entering the hall thruster
+    vector<int> MOMENTUMINDICES;                       // vector with momentum indices for fractional time splitting
     
     // Constants
     double BOLTZMANN           = 1.380649e-23;         // Boltzmann constant

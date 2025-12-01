@@ -32,6 +32,8 @@ public:
     virtual double getDt() = 0;
     virtual void setBoundaries() = 0;
     virtual void computeRHS() = 0;
+    virtual void computeSource() = 0;
+    virtual void computeFluxes() = 0;
 protected:
     PhysicalModel* m_pm;
     double m_dtOvdx;

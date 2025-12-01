@@ -196,6 +196,23 @@ Configuration::Configuration(const py::dict &options)
     py::str TimeSchemeName_py = options["timeScheme"];
     string TimeSchemeName = TimeSchemeName_py;
     
+    if (TimeSchemeName == "FractionalTime1OSplitting" 
+        || TimeSchemeName == "FractionalTime2OSplitting"
+        || TimeSchemeName == "FractionalTime3OSplitting") {
+        if(!options.attr("get")("momentumIndices").is_none()){
+            py::list momentumIndices_py = options["momentumIndices"];
+            int nIndices = py::len(momentumIndices_py);
+            Parameters::MOMENTUMINDICES.resize(nIndices);
+            for (int i = 0; i < nIndices; ++i){
+                py::int_ idx_py = momentumIndices_py[i];
+                Parameters::MOMENTUMINDICES[i] = idx_py;
+            }
+        }
+        else {
+            throw std::runtime_error("Fractional splitting time method requires momentumIndices option.");
+        }
+    }
+    
     // Physical Model options
     py::dict PhysicalModel = options["PhysicalModel"];
     py::str  PhysicalModelName_py = PhysicalModel["type"];

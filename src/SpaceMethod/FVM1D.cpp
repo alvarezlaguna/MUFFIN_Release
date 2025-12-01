@@ -196,3 +196,114 @@ void FVM1D::computeRHS(){
     }
 
 }
+
+void FVM1D::computeFluxes(){
+
+    const int    n1 = NBCELLS - 1;          // number of cells minus 1
+    
+    FluxScheme& flux1D          = *m_flux;      // reference is used to keep the same syntax as before
+    SourceTerm& sourceterm      = *m_source;
+    vector<Cell1D>& cells       = MeshData::getInstance().getData<Cell1D>("Cells");
+    // TODO: See if I can store the CC values in a reference vector
+    vector<double>& rhs         = MeshData::getInstance().getData<double>("rhs");
+    
+    // copy the boundaries to a value
+    //not anymore since it is the same ref
+    
+    // Reconstruction
+    m_reconstructor->reconstructField();
+    
+    double maxEigenvalue = 0;
+
+    // Main loop
+    m_Fip12         = flux1D(cells[0].uR, cells[1].uL);
+    m_Fim12         = flux1D(m_uInlet, cells[0].uL);
+    // First cell
+    for (unsigned int iEq = 0; iEq < NBEQS; iEq++){
+        // compute the flux
+        rhs[iEq*NBCELLS]        = m_Fip12[iEq] - m_Fim12[iEq];
+
+    }
+    // compute the max eigenvalue
+    double eigenval_iR      = abs(m_pm->getMaxEigenvalue(cells[0].uR));
+    double eigenval_ip1L    = abs(m_pm->getMaxEigenvalue(cells[1].uL));
+    double eigenval_im1R    = abs(m_pm->getMaxEigenvalue(m_uInlet));
+    double eigenval_iL      = abs(m_pm->getMaxEigenvalue(cells[0].uL));
+    maxEigenvalue           = max(maxEigenvalue, max(eigenval_iR,max(eigenval_ip1L, max(eigenval_im1R, eigenval_iL))));
+    m_dtOvdx = CFL/maxEigenvalue;
+    m_dt     = m_dtOvdx*cells[0].dx;
+    
+    // Loop over inner cells
+    for (int iCell = 1; iCell < n1; ++iCell) {
+        m_Fip12         = flux1D(cells[iCell].uR, cells[iCell+1].uL);
+        m_Fim12         = flux1D(cells[iCell-1].uR, cells[iCell].uL);
+        for (unsigned int iEq = 0; iEq < NBEQS; iEq++){
+            // compute the flux
+            rhs[iEq*NBCELLS + iCell]    = m_Fip12[iEq] - m_Fim12[iEq];
+        }
+        
+        // compute the max eigenvalue
+        eigenval_iR      = abs(m_pm->getMaxEigenvalue(cells[iCell].uR));
+        eigenval_ip1L    = abs(m_pm->getMaxEigenvalue(cells[iCell+1].uL));
+        eigenval_im1R    = abs(m_pm->getMaxEigenvalue(cells[iCell-1].uR));
+        eigenval_iL      = abs(m_pm->getMaxEigenvalue(cells[iCell].uL));
+        maxEigenvalue    = max(maxEigenvalue, max(eigenval_iR,max(eigenval_ip1L, max(eigenval_im1R, eigenval_iL))));
+        m_dtOvdx = min(m_dtOvdx, CFL/maxEigenvalue);
+        m_dt     = min(m_dt, m_dtOvdx*cells[iCell].dx);
+    } // integral flux on internal cells
+    // Last cell
+    m_Fip12         = flux1D(cells[n1].uR, m_uOutlet);
+    m_Fim12         = flux1D(cells[n1-1].uR, cells[n1].uL);
+    for (unsigned int iEq = 0; iEq < NBEQS; iEq++){
+        // compute the flux
+        rhs[iEq*NBCELLS + n1]       = m_Fip12[iEq] - m_Fim12[iEq];
+    }
+    
+    // Compute the sourceTerm
+    sourceterm.computeSource();
+    
+    // compute the max eigenvalue
+    eigenval_iR      = abs(m_pm->getMaxEigenvalue(cells[n1].uR));
+    eigenval_ip1L    = abs(m_pm->getMaxEigenvalue(m_uOutlet));
+    eigenval_im1R    = abs(m_pm->getMaxEigenvalue(cells[n1-1].uR));
+    eigenval_iL      = abs(m_pm->getMaxEigenvalue(cells[n1].uL));
+    maxEigenvalue    = max(maxEigenvalue, max(eigenval_iR,max(eigenval_ip1L, max(eigenval_im1R, eigenval_iL))));
+    m_dtOvdx = min(m_dtOvdx, CFL/maxEigenvalue);
+    m_dt     = min(m_dt, m_dtOvdx*cells[n1].dx);
+
+    const double sourceFrequency = sourceterm.getFrequency();
+    if(abs(sourceFrequency) < 1e-12){ // case where the frequency is close to zero
+        const double dtOvdx_convective   = m_dtOvdx;
+        const double dt_convective       = m_dt;
+        m_dtOvdx = dtOvdx_convective;
+        m_dt     = dt_convective;
+    }
+    else{
+        const double Dx                  = cells[0].dx; //Assuming the cells have the same delta_x
+        const double dtOvdx_source       = CFL/(sourceFrequency*Dx);
+        const double dtOvdx_convective   = m_dtOvdx;
+        const double dt_source           = CFL/(sourceFrequency);
+        const double dt_convective       = m_dt;
+
+        m_dtOvdx = min(dtOvdx_source, dtOvdx_convective);
+        m_dt     = min(dt_source, dt_convective);
+    }
+
+}
+
+void FVM1D::computeSource(){
+    SourceTerm& sourceterm      = *m_source;
+    const int    n1 = NBCELLS - 1;          // number of cells minus 1
+    
+    vector<Cell1D>& cells       = MeshData::getInstance().getData<Cell1D>("Cells");
+    // TODO: See if I can store the CC values in a reference vector
+    vector<double>& rhs         = MeshData::getInstance().getData<double>("rhs");
+    
+    // copy the boundaries to a value
+    //not anymore since it is the same ref
+    
+    // Compute the sourceTerm
+    sourceterm.computeSource();
+    const double sourceFrequency = sourceterm.getFrequency();
+
+}
