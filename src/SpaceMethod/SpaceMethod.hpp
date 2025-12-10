@@ -34,6 +34,7 @@ public:
     virtual void computeRHS() = 0;
     virtual void computeSource() = 0;
     virtual void computeFluxes() = 0;
+    virtual void computeEField() = 0;
 protected:
     PhysicalModel* m_pm;
     double m_dtOvdx;

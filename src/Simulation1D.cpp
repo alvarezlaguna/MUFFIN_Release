@@ -77,6 +77,11 @@ void Simulation1D::setup() {
     md.create2DData<double>("source",NBEQS, NBCELLS);     // Source term
     md.createData<CellDataRef>("boundaries",2);        // 2 boundary conditions needed: Inlet and Outlet
     
+    // Create EFieldPhi data if fractional splitting is enabled
+    if (EFIELDFRACTIONAL) {
+        md.create2DData<double>("EFieldPhi", 2, NBCELLS);  // Electric field and Phi for fractional splitting
+    }
+    
     // Create the data
     vector<Cell1D>& cells = md.getData<Cell1D>("Cells");
     py::array_t<double>& py_cells_CC = md.get2DData<double>("Cells_py_CC");
@@ -181,6 +186,11 @@ void Simulation1D::unsetup() {
     md.deleteData<double>("x");         //  x-Coordinate of the mesh
     md.delete2DData<double>("source");    // Source term
     md.deleteData<double>("boundaries");// boundary conditions
+    
+    // Delete EFieldPhi data if it was created
+    if (EFIELDFRACTIONAL) {
+        md.delete2DData<double>("EFieldPhi");  // Electric field and Phi for fractional splitting
+    }
     
     // release the pointer
     m_spaceMethod.release();

@@ -99,6 +99,7 @@ namespace Parameters {
     extern double R_S;                     // Final time to stop simulation
     extern string GEOMETRY_STREAMER;                // Streamer geometry
     extern vector<int> MOMENTUMINDICES;             // Momentum indices for fractional time splitting
+    extern bool EFIELDFRACTIONAL;                   // Flag for electric field fractional splitting
 
    
 

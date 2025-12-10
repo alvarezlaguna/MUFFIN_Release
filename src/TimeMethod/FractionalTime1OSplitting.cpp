@@ -56,12 +56,12 @@ void FractionalTime1OSplitting::takeStep(double dt)
     // Second step we advance the momentum source terms
     m_spaceMethod->setBoundaries();
     m_spaceMethod->computeSource();
-    for (unsigned int iFluid = 0; iFluid < NBEQS; ++iFluid){
+    for (unsigned int iFluid = 0; iFluid < NBFLUIDS; ++iFluid){
         for (unsigned int iMom = 0; iMom < Parameters::MOMENTUMINDICES.size(); ++iMom){
             int iEq = Parameters::MOMENTUMINDICES[iMom];
-            // py::print("iEq = ", iEq); //--- IGNORE ---
+            // py::print("iEq = ", iEq,"iFluid = ", iFluid); //--- IGNORE ---
             for (int iCell = 0; iCell < NBCELLS; ++iCell) {
-                const double S_i     = (*m_source).at(iFluid, iCell);
+                const double S_i     = (*m_source).at(iEq, iCell);
                 (*m_cells)[iCell].uCC[iEq] = (*m_cells)[iCell].uCC[iEq] + S_i*dt;
             }
         }
@@ -90,7 +90,7 @@ void FractionalTime1OSplitting::takeStep(double dt)
             }
         }
     }
-    
+
     // Loop to compute norm
     for(unsigned int iEq = 0; iEq < NBEQS; ++iEq){
         for (int iCell = 0; iCell < NBCELLS; ++iCell) {

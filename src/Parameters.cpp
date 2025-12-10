@@ -87,6 +87,7 @@ namespace Parameters {
     double FINAL_TIME          = 0.;                   // Final time to stop simulation
     double R_S                 = 0.05;                 // Rs for streamer in 1.5D cylindrical
     string GEOMETRY_STREAMER   = "Cylinder";           // Geometry for the streamer
+    bool EFIELDFRACTIONAL      = false;                // Flag for electric field fractional splitting
 
 
 

@@ -196,9 +196,29 @@ Configuration::Configuration(const py::dict &options)
     py::str TimeSchemeName_py = options["timeScheme"];
     string TimeSchemeName = TimeSchemeName_py;
     
-    if (TimeSchemeName == "FractionalTime1OSplitting" 
-        || TimeSchemeName == "FractionalTime2OSplitting"
+    if (TimeSchemeName == "FractionalTime2OSplitting"
         || TimeSchemeName == "FractionalTime3OSplitting") {
+        if(!options.attr("get")("momentumIndices").is_none()){
+            py::list momentumIndices_py = options["momentumIndices"];
+            int nIndices = py::len(momentumIndices_py);
+            Parameters::MOMENTUMINDICES.resize(nIndices);
+            Parameters::EFIELDFRACTIONAL = true;
+            for (int i = 0; i < nIndices; ++i){
+                py::int_ idx_py = momentumIndices_py[i];
+                Parameters::MOMENTUMINDICES[i] = idx_py;
+            }
+            CollisionalData& cd = CollisionalData::getInstance();
+            auto functionEFieldPhi_py = options["function_EFieldPhi"];
+            cd.createData<py::function>("function_EFieldPhi");        //Create the name in memory
+            auto& function  = CollisionalData::getInstance().getData<py::function>("function_EFieldPhi");
+            function = functionEFieldPhi_py;
+        }
+        else {
+            throw std::runtime_error("Fractional splitting time method requires momentumIndices option.");
+        }
+    }
+
+    if (TimeSchemeName == "FractionalTime1OSplitting" ) {
         if(!options.attr("get")("momentumIndices").is_none()){
             py::list momentumIndices_py = options["momentumIndices"];
             int nIndices = py::len(momentumIndices_py);

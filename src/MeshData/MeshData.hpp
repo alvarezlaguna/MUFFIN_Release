@@ -33,8 +33,11 @@ public:
     {data[name] = (void*)new vector<T>(size);}
 
     template <class T> void create2DData(const string& name, const int& rows, const int& cols)
-    {data[name] = (void*)new py::array_t<T>({rows, cols}, // shape
-            {cols*sizeof(T), sizeof(T)});}
+    {
+        auto* arr = new py::array_t<T>({rows, cols}, {cols*sizeof(T), sizeof(T)});
+        std::fill_n(arr->mutable_data(), rows * cols, T(0));
+        data[name] = (void*)arr;
+    }
     
     template <class T> void deleteData(const string& name)
     {delete (vector<T>*)data.find(name)->second;}
