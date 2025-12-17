@@ -7,7 +7,7 @@ set(CPPFLAGS "-O3 -Wall -shared -std=c++11 -undefined dynamic_lookup" )
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_MODULE_PATH}/cmake")
 
-find_package (Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package (Python3 3.11 EXACT COMPONENTS Interpreter Development REQUIRED)
 include(FindPkgConfig)
 pkg_check_modules(PETSC PETSc REQUIRED)
 
