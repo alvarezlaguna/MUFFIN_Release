@@ -101,6 +101,12 @@ namespace Parameters {
     extern vector<int> MOMENTUMINDICES;             // Momentum indices for fractional time splitting
     extern bool EFIELDFRACTIONAL;                   // Flag for electric field fractional splitting
 
+    // Options for the linearized Grad
+    extern int LEVEL;       // Level of the moment model (Nb. of Moments)
+    extern vector<double> EIGENVALUES_GRAD; // Eigenvalues for the linearized Grad model
+    extern vector<double> A_MATRIX_PLUS_GRAD;  // A+ matrix for the linearized Grad model
+    extern vector<double> A_MATRIX_MINUS_GRAD; // A- matrix for the linearized  Grad model
+
    
 
     

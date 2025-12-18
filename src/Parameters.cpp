@@ -78,7 +78,7 @@ namespace Parameters {
     double OMEGA_RF            = 1403.9856786769978;   // frequency rf normalized
     bool   SHEATHMODEL         = false;                // Flag for sheath mode
     double EPSILON             = 1e-4;                 // Small parameter in Euler Friction
-    int STRANG_SPLITTING_STEP  = 0.;                   // Strang-splitting step
+    int STRANG_SPLITTING_STEP  = 0;                   // Strang-splitting step
     double VOLTAGE             = 200;                  // CCP Voltage
     string TRANSPORTMODEL      = "Maxwellian";         // Transport model for the CCP discharge
     double TWALL               = 300.;                 // Temperature of the wall in K
@@ -89,9 +89,11 @@ namespace Parameters {
     string GEOMETRY_STREAMER   = "Cylinder";           // Geometry for the streamer
     bool EFIELDFRACTIONAL      = false;                // Flag for electric field fractional splitting
 
-
-
-
+    // Options for the linearized Grad
+    int LEVEL  = 2;                                     // Level of the moment model (Nb. of Moments)
+    vector<double> EIGENVALUES_GRAD;                    // Eigenvalues for the linearized Grad model
+    vector<double> A_MATRIX_PLUS_GRAD;                  // A+ matrix for the linearized Grad model
+    vector<double> A_MATRIX_MINUS_GRAD;                 // A- matrix for the linearized Grad model
 
     // Option for the two fluid Isothermal model
     vector<double> SOUNDSPEED(NBFLUIDS);               // vector with the sound speed of the fluids

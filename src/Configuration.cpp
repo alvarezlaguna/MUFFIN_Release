@@ -324,6 +324,72 @@ Configuration::Configuration(const py::dict &options)
         Parameters::DATAWRITER      = "DataWriter1DH5Py";
     }
     
+    // Options for linearized Grad
+    if (PhysicalModelName == "LinearizedGrad1D"){
+        py::int_ level_py = PhysicalModel["level"];
+        Parameters::LEVEL = level_py;
+
+        Parameters::EIGENVALUES_GRAD.resize(Parameters::LEVEL);
+        py::list eigenvalues_py = PhysicalModel["eigenvalues"];
+        for (int i = 0; i < Parameters::LEVEL; ++i){
+            py::float_ eigenvalue_py_i = eigenvalues_py[i];
+            Parameters::EIGENVALUES_GRAD[i] = eigenvalue_py_i;
+        }
+        py::print("Linearized Grad model with ", Parameters::LEVEL, " moments.");
+        py::print("Eigenvalues: ");
+        for (int i = 0; i < Parameters::LEVEL; ++i){
+            py::print(Parameters::EIGENVALUES_GRAD[i]);
+        }
+        Parameters::A_MATRIX_PLUS_GRAD.resize(Parameters::LEVEL * Parameters::LEVEL);
+        // py::list Aplus_py = PhysicalModel["A_matrix_plus"];
+        py::array_t<double> Aplus_py = PhysicalModel["A_matrix_plus"].cast<py::array_t<double>>();
+        auto buf = Aplus_py.request();
+
+        if (buf.ndim != 2)
+            throw std::runtime_error("Array must be 2-dimensional");
+
+        int rows = buf.shape[0];
+        int cols = buf.shape[1];
+        double* ptr = static_cast<double*>(buf.ptr);    
+        for (int i = 0; i < Parameters::LEVEL ; ++i){
+            for(int j = 0; j < Parameters::LEVEL; ++j){
+                // py::float_ Aplus_py_ij = Aplus_py[i][j];
+                Parameters::A_MATRIX_PLUS_GRAD[i * Parameters::LEVEL + j] = ptr[i * cols + j];
+            }
+        }
+
+        Parameters::A_MATRIX_MINUS_GRAD.resize(Parameters::LEVEL * Parameters::LEVEL);
+        py::array_t<double> Aminus_py = PhysicalModel["A_matrix_minus"].cast<py::array_t<double>>();
+        buf = Aminus_py.request();
+        if (buf.ndim != 2)
+            throw std::runtime_error("Array must be 2-dimensional");
+
+        ptr = static_cast<double*>(buf.ptr);    
+        for (int i = 0; i < Parameters::LEVEL ; ++i){
+            for(int j = 0; j < Parameters::LEVEL; ++j){
+                // py::float_ Aplus_py_ij = Aplus_py[i][j];
+                Parameters::A_MATRIX_MINUS_GRAD[i * Parameters::LEVEL + j] = ptr[i * cols + j];
+            }
+        }
+
+        // py::print("A+ Matrix: ");
+        // for (int i = 0; i < Parameters::LEVEL ; ++i){
+        //     string row = "";
+        //     for(int j = 0; j < Parameters::LEVEL; ++j){
+        //         row += to_string(Parameters::A_MATRIX_PLUS_GRAD[i * Parameters::LEVEL + j]) + " ";
+        //     }
+        //     py::print(row);
+        // }
+        // py::print("A- Matrix: ");
+        // for (int i = 0; i < Parameters::LEVEL ; ++i){
+        //     string row = "";
+        //     for(int j = 0; j < Parameters::LEVEL; ++j){
+        //         row += to_string(Parameters::A_MATRIX_MINUS_GRAD[i * Parameters::LEVEL + j]) + " ";
+        //     }
+        //     py::print(row);
+        // }           
+    }
+
     Parameters::UINLET.resize(nbEqs);
     // Only rank = 0 has the physical inlet
     if (world_rank == 0){
