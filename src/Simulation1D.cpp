@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <algorithm>    // std::min_element, std::max_element
