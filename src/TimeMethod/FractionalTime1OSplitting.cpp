@@ -69,6 +69,7 @@ void FractionalTime1OSplitting::takeStep(double dt)
 
     m_spaceMethod->setBoundaries();
     m_spaceMethod->computeFluxes();    
+    m_spaceMethod->computeSource();
     // Third step we advance the rest of variables (non-momentum equations)
     for(unsigned int iEq = 0; iEq < NBEQS; ++iEq){
         // Check if iEq is a momentum index
@@ -86,7 +87,8 @@ void FractionalTime1OSplitting::takeStep(double dt)
             for (int iCell = 0; iCell < NBCELLS; ++iCell) {
                 double k             = dt/(*m_cells)[iCell].dx; 
                 const double rhsU    = (*m_rhs)[iEq*NBCELLS + iCell];
-                (*m_cells)[iCell].uCC[iEq] = u_1[iEq*NBCELLS + iCell] - k*rhsU;
+                const double S_i     = (*m_source).at(iEq, iCell);
+                (*m_cells)[iCell].uCC[iEq] = u_1[iEq*NBCELLS + iCell] - k*rhsU + S_i*dt;
             }
         }
     }
