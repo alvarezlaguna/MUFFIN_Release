@@ -42,9 +42,16 @@ void PythonSourceTerm::computeSource()
     // });
 
     py::array_t<double> m_pythonArray=MeshData::getInstance().get2DData<double>("Cells_py_CC");
-           
-
-    py::object nu=m_function(m_pythonArray, source);
+    
+    // Check if EFieldPhi exists and pass it to the function if it does
+    py::object nu;
+    if (MeshData::getInstance().hasData("EFieldPhi")) { // The EField has been computed before
+        py::array_t<double> m_EFieldPhi = MeshData::getInstance().get2DData<double>("EFieldPhi");
+        nu = m_function(m_pythonArray, m_EFieldPhi, source);
+    } else {  // The EField has not been computed before
+        nu = m_function(m_pythonArray, source);
+    }
+    
     if (py::isinstance<py::float_>(nu)){
         setFrequency(nu.cast<double>());
         // code to execute if nu is castable to double

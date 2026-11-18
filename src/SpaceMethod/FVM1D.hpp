@@ -30,6 +30,7 @@ public:
     virtual void setBoundaries();
     virtual void computeRHS();
     virtual void computeSource();
+    virtual void computeEField();
     virtual void computeFluxes();
     virtual double getDtOvDx(){
         int world_size, world_rank;
@@ -55,6 +56,7 @@ public:
 protected:
     unique_ptr<FluxScheme> m_flux;
     unique_ptr<SourceTerm> m_source;
+    unique_ptr<SourceTerm> m_EFieldSource;  // Source term for electric field fractional splitting
     unique_ptr<SpaceReconstructor> m_reconstructor;
     unique_ptr<BoundaryCondition> m_InletBC;
     unique_ptr<BoundaryCondition> m_OutletBC;

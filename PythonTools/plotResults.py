@@ -72,7 +72,21 @@ class Data:
                         phi = np.array(f['Phi'])
                         if phi.size != x.size:
                             raise RuntimeError('Phi dataset length %d incompatible with x length %d' % (phi.size, x.size))
-                        self.resultsArray = np.vstack((x, u2, phi))
+                        # Check for EFieldPhi as well (2D array: 2 x NBCELLS)
+                        if 'EFieldPhi' in f:
+                            EFieldPhi = np.array(f['EFieldPhi'])
+                            if EFieldPhi.shape[1] != x.size:
+                                raise RuntimeError('EFieldPhi dataset width %d incompatible with x length %d' % (EFieldPhi.shape[1], x.size))
+                            # Append Phi, then E-field (row 0) and Phi from EFieldPhi (row 1)
+                            self.resultsArray = np.vstack((x, u2, phi, EFieldPhi[0, :], EFieldPhi[1, :]))
+                        else:
+                            self.resultsArray = np.vstack((x, u2, phi))
+                    elif 'EFieldPhi' in f:
+                        # Only EFieldPhi exists, not Phi
+                        EFieldPhi = np.array(f['EFieldPhi'])
+                        if EFieldPhi.shape[1] != x.size:
+                            raise RuntimeError('EFieldPhi dataset width %d incompatible with x length %d' % (EFieldPhi.shape[1], x.size))
+                        self.resultsArray = np.vstack((x, u2, EFieldPhi[0, :], EFieldPhi[1, :]))
                     else:
                         self.resultsArray = np.vstack((x, u2))
                     self.nbEqs = self.resultsArray.shape[0] - 1
@@ -150,7 +164,21 @@ def getResultsSingleFile(options):
                     phi = np.array(f['Phi'])
                     if phi.size != x.size:
                         raise RuntimeError('Phi dataset length %d incompatible with x length %d' % (phi.size, x.size))
-                    results = np.vstack((base, phi)).astype(np.float64)
+                    # Check for EFieldPhi as well (2D array: 2 x NBCELLS)
+                    if 'EFieldPhi' in f:
+                        EFieldPhi = np.array(f['EFieldPhi'])
+                        if EFieldPhi.shape[1] != x.size:
+                            raise RuntimeError('EFieldPhi dataset width %d incompatible with x length %d' % (EFieldPhi.shape[1], x.size))
+                        # Append Phi, then E-field (row 0) and Phi from EFieldPhi (row 1)
+                        results = np.vstack((base, phi, EFieldPhi[0, :], EFieldPhi[1, :])).astype(np.float64)
+                    else:
+                        results = np.vstack((base, phi)).astype(np.float64)
+                elif 'EFieldPhi' in f:
+                    # Only EFieldPhi exists, not Phi
+                    EFieldPhi = np.array(f['EFieldPhi'])
+                    if EFieldPhi.shape[1] != x.size:
+                        raise RuntimeError('EFieldPhi dataset width %d incompatible with x length %d' % (EFieldPhi.shape[1], x.size))
+                    results = np.vstack((base, EFieldPhi[0, :], EFieldPhi[1, :])).astype(np.float64)
                 else:
                     results = base.astype(np.float64)
                 return results

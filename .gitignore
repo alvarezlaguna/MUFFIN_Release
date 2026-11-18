@@ -237,3 +237,10 @@ testcases/2_Test_TwoFluidIsothermalSheath/test_Sheath/file_iter_003000_time_6.09
 testcases/2_Test_TwoFluidIsothermalSheath/test_Sheath/file_iter_004000_time_8.12525192e-02.txt
 testcases/1_Test_Euler/Results_SodTube_FirstOrder_Roe
 testcases/2_Test_TwoFluidIsothermalSheath/test_Sheath
+# Build artifacts (in-source builds) — untracked 2026-11-18
+/CMakeFiles/
+/CMakeCache.txt
+/Makefile
+/cmake_install.cmake
+/install_manifest.txt
+/*.so

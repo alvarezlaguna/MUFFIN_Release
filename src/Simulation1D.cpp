@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <algorithm>    // std::min_element, std::max_element
@@ -76,6 +77,11 @@ void Simulation1D::setup() {
     md.createData<double>("x", NBCELLS);                // x-Coordinate of the mesh
     md.create2DData<double>("source",NBEQS, NBCELLS);     // Source term
     md.createData<CellDataRef>("boundaries",2);        // 2 boundary conditions needed: Inlet and Outlet
+    
+    // Create EFieldPhi data if fractional splitting is enabled
+    if (EFIELDFRACTIONAL) {
+        md.create2DData<double>("EFieldPhi", 2, NBCELLS);  // Electric field and Phi for fractional splitting
+    }
     
     // Create the data
     vector<Cell1D>& cells = md.getData<Cell1D>("Cells");
@@ -182,6 +188,11 @@ void Simulation1D::unsetup() {
     md.delete2DData<double>("source");    // Source term
     md.deleteData<double>("boundaries");// boundary conditions
     
+    // Delete EFieldPhi data if it was created
+    if (EFIELDFRACTIONAL) {
+        md.delete2DData<double>("EFieldPhi");  // Electric field and Phi for fractional splitting
+    }
+    
     // release the pointer
     m_spaceMethod.release();
     m_timeMethod.release(); 
@@ -260,9 +271,9 @@ py::array_t<double> Simulation1D::simulate(){
     int my_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     
-    // needed to store the norm and time in a buffer to use py::print
-    char buffer_norm[100];
-    char buffer_time[100];
+    // needed to store the norm and time in a string to use py::print
+    std::ostringstream buffer_norm;
+    std::ostringstream buffer_time;
     
     if(final_time_cond == false){
         while ((meanNorm > EPS) && iter < NBSTEPS) { // iterate till convergence
@@ -277,18 +288,22 @@ py::array_t<double> Simulation1D::simulate(){
 
             if (iter % SAVERATE == 0 || iter == 1){  writeData(iter);} //write data
 
-            sprintf(buffer_norm, "%0.5lf",norm_global[0]);
+            buffer_norm.str("");
+            buffer_norm.clear();
+            buffer_norm << std::fixed << std::setprecision(5) << norm_global[0];
             meanNorm += norm_global[0];
 
             for(int iEq =1; iEq<NBEQS; iEq++){
-                sprintf(buffer_norm + strlen(buffer_norm), "\t%0.5lf",norm_global[iEq]);
+                buffer_norm << "\t" << std::fixed << std::setprecision(5) << norm_global[iEq];
                 meanNorm += norm_global[iEq];
             }
-            sprintf(buffer_time, "%0.3e",physTime);
+            buffer_time.str("");
+            buffer_time.clear();
+            buffer_time << std::scientific << std::setprecision(3) << physTime;
             
             if (my_rank == MPI_WRITER){
                 if (iter % PRINTRATE == 0){
-                    py::print( "Iter[",iter,"] \t Res = [", buffer_norm , "]\t PhysTime = ", buffer_time);
+                    py::print( "Iter[",iter,"] \t Res = [", buffer_norm.str() , "]\t PhysTime = ", buffer_time.str());
                 }
             }
             // Compute the mean of the norm to stop simulation
@@ -308,18 +323,22 @@ py::array_t<double> Simulation1D::simulate(){
 
             if ( (SAVERATE!=0 && iter % SAVERATE == 0) || iter == 1){  writeData(iter);} //write data
 
-            sprintf(buffer_norm, "%0.5lf",norm_global[0]);
+            buffer_norm.str("");
+            buffer_norm.clear();
+            buffer_norm << std::fixed << std::setprecision(5) << norm_global[0];
             meanNorm += norm_global[0];
 
             for(int iEq =1; iEq<NBEQS; iEq++){
-                sprintf(buffer_norm + strlen(buffer_norm), "\t%0.5lf",norm_global[iEq]);
+                buffer_norm << "\t" << std::fixed << std::setprecision(5) << norm_global[iEq];
                 meanNorm += norm_global[iEq];
             }
-            sprintf(buffer_time, "%0.3e",physTime);
+            buffer_time.str("");
+            buffer_time.clear();
+            buffer_time << std::scientific << std::setprecision(3) << physTime;
             
             if (my_rank == MPI_WRITER){
                 if (iter % PRINTRATE == 0){
-                    py::print( "Iter[",iter,"] \t Res = [", buffer_norm , "]\t PhysTime = ", buffer_time);
+                    py::print( "Iter[",iter,"] \t Res = [", buffer_norm.str() , "]\t PhysTime = ", buffer_time.str());
                 }
             }
             // Compute the mean of the norm to stop simulation
@@ -329,7 +348,7 @@ py::array_t<double> Simulation1D::simulate(){
     // Write final data
     writeData(iter);
     if (my_rank == MPI_WRITER){
-        py::print( "At iter [" , iter ,"] reached norm [" , buffer_norm ,"]\n");
+        py::print( "At iter [" , iter ,"] reached norm [" , buffer_norm.str() ,"]\n");
     }
 
     setResidual(norm_global);

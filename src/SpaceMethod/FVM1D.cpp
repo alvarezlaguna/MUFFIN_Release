@@ -13,6 +13,7 @@
 #include "../BoundaryCondition/BoundaryConditionFactory.hpp"
 #include "../MeshData/MeshData.hpp"
 #include "../MeshData/Cell1D.hpp"
+#include "../CollisionalData/CollisionalData.hpp"
 #include <pybind11/pybind11.h>
 #include <mpi.h>
 
@@ -40,6 +41,17 @@ void FVM1D::setup(){
     m_source->setPhysicalModel(m_pm);
     m_source->setup();
     
+    // Initialize the E-field source term if fractional splitting is enabled
+    if (EFIELDFRACTIONAL) {
+        // Check if the functionEFieldPhi exists in CollisionalData before creating the source term   
+        py::print("Initializing E-field source term for fractional splitting...\n");
+        m_EFieldSource = SourceTermFactory::CreateSourceTerm("PythonEFieldSourceTerm");
+        m_EFieldSource->setPhysicalModel(m_pm);
+        m_EFieldSource->setup();
+        py::print("E-field source term initialized.\n");
+
+    }
+    
     // Initialize the reconstructor for second order solution in space
     m_reconstructor = ReconstructorFactory::CreateReconstructor(RECONSTRUCTORNAME);
     m_reconstructor->setup(); // initialize the limiter
@@ -52,6 +64,9 @@ void FVM1D::setup(){
     if(my_rank == MPI_WRITER){
         py::print("Space discretization using the flux scheme:\t ",m_flux->getName(),"\n");
         py::print("Space discretization using the source term:\t ",m_source->getName(),"\n");
+        if (EFIELDFRACTIONAL) {
+            py::print("Space discretization using E-field source term:\t ",m_EFieldSource->getName(),"\n");
+        }
         py::print("Space discretization using the reconstructor:\t ",m_reconstructor->getName(),"\n");
     }
 }
@@ -293,17 +308,18 @@ void FVM1D::computeFluxes(){
 
 void FVM1D::computeSource(){
     SourceTerm& sourceterm      = *m_source;
-    const int    n1 = NBCELLS - 1;          // number of cells minus 1
-    
-    vector<Cell1D>& cells       = MeshData::getInstance().getData<Cell1D>("Cells");
-    // TODO: See if I can store the CC values in a reference vector
-    vector<double>& rhs         = MeshData::getInstance().getData<double>("rhs");
-    
-    // copy the boundaries to a value
-    //not anymore since it is the same ref
     
     // Compute the sourceTerm
     sourceterm.computeSource();
     const double sourceFrequency = sourceterm.getFrequency();
 
+}
+
+void FVM1D::computeEField(){
+    if (EFIELDFRACTIONAL && m_EFieldSource) {
+        SourceTerm& EFieldSourceTerm = *m_EFieldSource;
+        
+        // Compute the E-field source term
+        EFieldSourceTerm.computeSource();
+    }
 }

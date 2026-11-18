@@ -80,7 +80,10 @@ def plotResult(ax, Directory, color='k', label='test 1'):
 
 # Prepare the plot 
 import matplotlib
-cmap = matplotlib.cm.get_cmap('plasma')
+try:
+    cmap = matplotlib.colormaps['plasma']      ## matplotlib >= 3.5
+except AttributeError:
+    cmap = matplotlib.cm.get_cmap('plasma')    ## older matplotlib
 colors = cmap(np.linspace(1,0,11))
 
 f, ax = plt.subplots(1)

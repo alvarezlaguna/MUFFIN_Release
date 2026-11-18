@@ -84,6 +84,17 @@ void DataWriter1DH5Py::writeData(const int iter)
             }
         }
 
+        // If EFieldPhi exists in MeshData, write it as well (2D array: 2 x NBCELLS)
+        if (MeshData::getInstance().hasData("EFieldPhi")){
+            try {
+                py::array_t<double>& EFieldPhi = MeshData::getInstance().get2DData<double>("EFieldPhi");
+                f["EFieldPhi"] = EFieldPhi;
+            }
+            catch (const std::exception &e){
+                std::cerr << "Error retrieving EFieldPhi from MeshData: " << e.what() << std::endl;
+            }
+        }
+
     // write time as dataset
     f["time"] = py::cast(physTime);
         f.attr("close")();
